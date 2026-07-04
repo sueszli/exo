@@ -58,11 +58,36 @@ module Effects {
 # --------------------------------------------------------------------------- #
 
 
+# a value loaded from a size/index buffer and used as an index (a "gather") is
+# opaque to the checker; identical loads must map to one symbol so that a guard
+# `if idx[i] < n` discharges the bound of a later use `A[idx[i]]`. reset per proc.
+_gather_syms = {}
+
+
+def _gather_key(e):
+    if isinstance(e, LoopIR.Read):
+        return ("read", e.name, tuple(_gather_key(i) for i in e.idx))
+    elif isinstance(e, LoopIR.Const):
+        return ("const", e.val, str(e.type))
+    elif isinstance(e, LoopIR.USub):
+        return ("usub", _gather_key(e.arg))
+    elif isinstance(e, LoopIR.BinOp):
+        return ("binop", e.op, _gather_key(e.lhs), _gather_key(e.rhs))
+    elif isinstance(e, LoopIR.ReadConfig):
+        return ("config", e.config.name(), e.field)
+    assert False, f"bad case, e is {type(e)}"
+
+
 # convert from LoopIR.expr to E.expr
 def lift_expr(e):
     if isinstance(e, LoopIR.Read):
-        assert len(e.idx) == 0
-        return E.Var(e.name, e.type, e.srcinfo)
+        if not e.idx:
+            return E.Var(e.name, e.type, e.srcinfo)
+        assert e.type.is_indexable()
+        key = _gather_key(e)
+        if key not in _gather_syms:
+            _gather_syms[key] = Sym(f"gather_{len(_gather_syms)}")
+        return E.Var(_gather_syms[key], e.type, e.srcinfo)
 
     elif isinstance(e, LoopIR.Const):
         return E.Const(e.val, e.type, e.srcinfo)
@@ -531,6 +556,7 @@ def loopir_subst(e, subst):
 class CheckBounds:
     def __init__(self, proc):
         self.orig_proc = proc
+        _gather_syms.clear()  # dedup is scoped to this procedure
 
         # Map sym to z3 variable
         self.env = ChainMap()

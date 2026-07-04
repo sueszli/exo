@@ -609,6 +609,15 @@ _prim_types = {
     "i32": UAST.INT32(),
 }
 
+# tensor element types: numeric types plus size/index, so a buffer of indices
+# (`idx: index[n]`) can gather into another buffer. kept out of _prim_types so a
+# bare scalar `x: size` local stays disallowed.
+_elem_types = {
+    **_prim_types,
+    "size": UAST.Size(),
+    "index": UAST.Index(),
+}
+
 
 class Parser:
     def __init__(
@@ -949,17 +958,17 @@ class Parser:
                     )
 
                 base = node.value.elts[0]
-                if not isinstance(base, pyast.Name) or base.id not in _prim_types:
+                if not isinstance(base, pyast.Name) or base.id not in _elem_types:
                     self.err(
                         node,
                         "expected window type to be of "
                         "the form '[R][...]', '[f32][...]', etc.",
                     )
 
-                typ = _prim_types[base.id]
+                typ = _elem_types[base.id]
                 is_window = True
-            elif isinstance(node.value, pyast.Name) and node.value.id in _prim_types:
-                typ = _prim_types[node.value.id]
+            elif isinstance(node.value, pyast.Name) and node.value.id in _elem_types:
+                typ = _elem_types[node.value.id]
                 is_window = False
             else:
                 typ = self.parse_num_type(node.value)
